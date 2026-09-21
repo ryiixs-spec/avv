@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Sparkles, Star } from 'lucide-react';
 import confetti from 'canvas-confetti';
+import CuteBunny from '@/components/CuteBunnies';
 
 interface EnvelopeProps {
   onOpen: () => void;
@@ -39,6 +40,27 @@ export default function Envelope({ onOpen }: EnvelopeProps) {
 
   return (
     <div className="relative flex flex-col items-center justify-center min-h-screen px-4 z-20">
+      {/* Cute Bunnies — Left Side */}
+      <motion.div
+        initial={{ opacity: 0, x: -40 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 1, delay: 0.6, ease: 'easeOut' }}
+        className="absolute bottom-8 left-4 sm:left-10 md:left-16 z-30 flex gap-3"
+      >
+        <CuteBunny position="envelope-left" />
+        <CuteBunny position="envelope-left" />
+      </motion.div>
+
+      {/* Cute Bunnies — Right Side */}
+      <motion.div
+        initial={{ opacity: 0, x: 40 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 1, delay: 0.8, ease: 'easeOut' }}
+        className="absolute bottom-8 right-4 sm:right-10 md:right-16 z-30 flex gap-3"
+      >
+        <CuteBunny position="envelope-right" />
+        <CuteBunny position="envelope-right" />
+      </motion.div>
       {/* Background soft decorative clouds around the envelope */}
       <motion.div
         animate={{ y: [0, -10, 0], x: [0, 5, 0] }}
