@@ -8,269 +8,92 @@ interface MusicPlayerProps {
   autoPlayTriggered: boolean;
 }
 
-declare global {
-  interface Window {
-    onYouTubeIframeAPIReady?: () => void;
-    YT?: {
-      Player: new (
-        elementId: string,
-        options: {
-          videoId: string;
-          playerVars?: Record<string, unknown>;
-          events?: {
-            onReady?: (event: { target: YTPlayerInstance }) => void;
-            onStateChange?: (event: { data: number }) => void;
-            onError?: (event: unknown) => void;
-          };
-        }
-      ) => YTPlayerInstance;
-      PlayerState?: {
-        PLAYING: number;
-        PAUSED: number;
-        ENDED: number;
-      };
-    };
-  }
-}
-
-interface YTPlayerInstance {
-  playVideo: () => void;
-  pauseVideo: () => void;
-  mute: () => void;
-  unMute: () => void;
-  setVolume: (vol: number) => void;
-  isMuted: () => boolean;
-  getPlayerState: () => number;
-  seekTo: (seconds: number, allowSeekAhead?: boolean) => void;
-  getCurrentTime: () => number;
-}
-
 export default function MusicPlayer({ autoPlayTriggered }: MusicPlayerProps) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [volume, setVolume] = useState(0.35);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [ytReady, setYtReady] = useState(false);
-
-  const ytPlayerRef = useRef<YTPlayerInstance | null>(null);
-  const hasSeekedToStart = useRef(false);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const synthTimerRef = useRef<NodeJS.Timeout | null>(null);
-  const audioCtxRef = useRef<AudioContext | null>(null);
-  const isSynthActiveRef = useRef(false);
+  const hasStarted = useRef(false);
 
-  // Fallback Web Audio Synthesizer
-  const startFallbackSynth = useCallback(() => {
-    if (isSynthActiveRef.current) return;
-    try {
-      const AudioCtx =
-        window.AudioContext ||
-        (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-      if (!AudioCtx) return;
-      const ctx = new AudioCtx();
-      audioCtxRef.current = ctx;
-      isSynthActiveRef.current = true;
-
-      const chordNotes = [
-        [349.23, 440.0, 523.25, 659.25], // Fmaj7
-        [329.63, 392.0, 493.88, 587.33], // Em7
-        [293.66, 349.23, 440.0, 523.25], // Dm7
-        [261.63, 329.63, 392.0, 493.88], // Cmaj7
-      ];
-
-      let chordIndex = 0;
-
-      const playChord = () => {
-        if (!isSynthActiveRef.current || !audioCtxRef.current) return;
-        const currentCtx = audioCtxRef.current;
-        if (currentCtx.state === 'suspended') {
-          currentCtx.resume();
-        }
-
-        const notes = chordNotes[chordIndex];
-        notes.forEach((freq) => {
-          const osc = currentCtx.createOscillator();
-          const gain = currentCtx.createGain();
-          const filter = currentCtx.createBiquadFilter();
-
-          filter.type = 'lowpass';
-          filter.frequency.setValueAtTime(650, currentCtx.currentTime);
-
-          osc.type = 'sine';
-          osc.frequency.setValueAtTime(freq, currentCtx.currentTime);
-
-          const now = currentCtx.currentTime;
-          const targetVol = isMuted ? 0 : volume * 0.05;
-
-          gain.gain.setValueAtTime(0.001, now);
-          gain.gain.linearRampToValueAtTime(targetVol, now + 1.2);
-          gain.gain.exponentialRampToValueAtTime(0.0001, now + 4.8);
-
-          osc.connect(filter);
-          filter.connect(gain);
-          gain.connect(currentCtx.destination);
-
-          osc.start(now);
-          osc.stop(now + 5.0);
-        });
-
-        chordIndex = (chordIndex + 1) % chordNotes.length;
-      };
-
-      playChord();
-      synthTimerRef.current = setInterval(playChord, 4200);
-    } catch {
-      // ignore
-    }
-  }, [isMuted, volume]);
-
-  const stopFallbackSynth = useCallback(() => {
-    isSynthActiveRef.current = false;
-    if (synthTimerRef.current) {
-      clearInterval(synthTimerRef.current);
-      synthTimerRef.current = null;
-    }
-    if (audioCtxRef.current && audioCtxRef.current.state !== 'closed') {
-      try {
-        audioCtxRef.current.close();
-      } catch {
-        // ignore
-      }
-      audioCtxRef.current = null;
-    }
-  }, []);
-
-  // Initialize YouTube IFrame Player
+  // Seek to 1:22 (82s) on load
   useEffect(() => {
-    const tag = document.createElement('script');
-    tag.src = 'https://www.youtube.com/iframe_api';
-    const firstScriptTag = document.getElementsByTagName('script')[0];
-    if (firstScriptTag && firstScriptTag.parentNode) {
-      firstScriptTag.parentNode.insertBefore(tag, firstScriptTag);
-    } else {
-      document.head.appendChild(tag);
-    }
+    const audio = audioRef.current;
+    if (!audio) return;
 
-    const initPlayer = () => {
-      if (window.YT && window.YT.Player) {
-        new window.YT.Player('yt-bg-player', {
-          videoId: 'tGv7CUutzqU',
-          playerVars: {
-            autoplay: 0,
-            controls: 0,
-            disablekb: 1,
-            fs: 0,
-            iv_load_policy: 3,
-            start: 82,
-            playsinline: 1,
-            modestbranding: 1,
-            rel: 0,
-          },
-          events: {
-            onReady: (e) => {
-              ytPlayerRef.current = e.target;
-              e.target.setVolume(volume * 100);
-              try {
-                e.target.seekTo(82, true);
-              } catch {
-                // ignore
-              }
-              setYtReady(true);
-            },
-            onStateChange: (e) => {
-              if (window.YT?.PlayerState) {
-                if (e.data === window.YT.PlayerState.PLAYING) {
-                  setIsPlaying(true);
-                } else if (e.data === window.YT.PlayerState.PAUSED) {
-                  setIsPlaying(false);
-                } else if (e.data === window.YT.PlayerState.ENDED) {
-                  // Loop back to 1:22 (82s)
-                  try {
-                    ytPlayerRef.current?.seekTo(82, true);
-                    ytPlayerRef.current?.playVideo();
-                  } catch {
-                    setIsPlaying(false);
-                  }
-                }
-              }
-            },
-            onError: () => {
-              // Fallback to local audio / synth if YouTube embedding is restricted
-            },
-          },
-        });
+    const handleCanPlay = () => {
+      if (!hasStarted.current) {
+        audio.currentTime = 82;
       }
     };
 
-    if (window.YT && window.YT.Player) {
-      initPlayer();
-    } else {
-      window.onYouTubeIframeAPIReady = initPlayer;
-    }
-  }, [volume]);
+    audio.addEventListener('canplay', handleCanPlay);
+    audio.volume = volume;
+
+    return () => {
+      audio.removeEventListener('canplay', handleCanPlay);
+    };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Loop back to 1:22 when it reaches end
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    const handleEnded = () => {
+      audio.currentTime = 82;
+      audio.play().catch(() => {});
+    };
+
+    // Also loop via timeupdate if song goes past end naturally
+    const handleTimeUpdate = () => {
+      if (audio.duration && audio.currentTime >= audio.duration - 0.3) {
+        audio.currentTime = 82;
+        audio.play().catch(() => {});
+      }
+    };
+
+    audio.addEventListener('ended', handleEnded);
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+
+    return () => {
+      audio.removeEventListener('ended', handleEnded);
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+    };
+  }, []);
 
   const playAudio = useCallback(() => {
-    let playedFromYt = false;
-    if (ytPlayerRef.current) {
-      try {
-        ytPlayerRef.current.setVolume(volume * 100);
-        if (isMuted) {
-          ytPlayerRef.current.mute();
-        } else {
-          ytPlayerRef.current.unMute();
-        }
-        if (!hasSeekedToStart.current) {
-          ytPlayerRef.current.seekTo(82, true);
-          hasSeekedToStart.current = true;
-        }
-        ytPlayerRef.current.playVideo();
-        setIsPlaying(true);
-        playedFromYt = true;
-      } catch {
-        // fallback
-      }
+    const audio = audioRef.current;
+    if (!audio) return;
+
+    audio.volume = isMuted ? 0 : volume;
+    audio.muted = isMuted;
+
+    if (!hasStarted.current) {
+      audio.currentTime = 82;
+      hasStarted.current = true;
     }
 
-    if (!playedFromYt) {
-      if (audioRef.current) {
-        audioRef.current.volume = volume;
-        audioRef.current
-          .play()
-          .then(() => {
-            setIsPlaying(true);
-          })
-          .catch(() => {
-            startFallbackSynth();
-            setIsPlaying(true);
-          });
-      } else {
-        startFallbackSynth();
-        setIsPlaying(true);
-      }
-    }
-  }, [volume, isMuted, startFallbackSynth]);
+    audio.play()
+      .then(() => setIsPlaying(true))
+      .catch(() => {
+        // Browser blocked autoplay — user needs to interact first
+      });
+  }, [volume, isMuted]);
 
   const pauseAudio = useCallback(() => {
-    if (ytPlayerRef.current) {
-      try {
-        ytPlayerRef.current.pauseVideo();
-      } catch {
-        // ignore
-      }
-    }
-    if (audioRef.current) {
-      audioRef.current.pause();
-    }
-    stopFallbackSynth();
+    audioRef.current?.pause();
     setIsPlaying(false);
-  }, [stopFallbackSynth]);
+  }, []);
 
-  // Trigger when user opens the envelope
+  // Trigger autoplay when envelope is opened
   useEffect(() => {
     if (autoPlayTriggered && !isPlaying) {
       playAudio();
     }
-  }, [autoPlayTriggered, isPlaying, playAudio]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoPlayTriggered]);
 
   const togglePlay = () => {
     if (isPlaying) {
@@ -281,67 +104,34 @@ export default function MusicPlayer({ autoPlayTriggered }: MusicPlayerProps) {
   };
 
   const toggleMute = () => {
-    const nextMuteState = !isMuted;
-    setIsMuted(nextMuteState);
-
-    if (ytPlayerRef.current) {
-      try {
-        if (nextMuteState) {
-          ytPlayerRef.current.mute();
-        } else {
-          ytPlayerRef.current.unMute();
-          ytPlayerRef.current.setVolume(volume * 100);
-        }
-      } catch {
-        // ignore
-      }
-    }
-
+    const next = !isMuted;
+    setIsMuted(next);
     if (audioRef.current) {
-      audioRef.current.muted = nextMuteState;
+      audioRef.current.muted = next;
     }
   };
 
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const val = parseFloat(e.target.value);
     setVolume(val);
-
-    if (ytPlayerRef.current) {
-      try {
-        ytPlayerRef.current.setVolume(val * 100);
-        if (val === 0) {
-          ytPlayerRef.current.mute();
-        } else if (isMuted) {
-          ytPlayerRef.current.unMute();
-        }
-      } catch {
-        // ignore
-      }
-    }
-
     if (audioRef.current) {
       audioRef.current.volume = val;
     }
-
     if (val === 0) {
       setIsMuted(true);
+      if (audioRef.current) audioRef.current.muted = true;
     } else if (isMuted) {
       setIsMuted(false);
+      if (audioRef.current) audioRef.current.muted = false;
     }
   };
 
   return (
     <div className="fixed bottom-4 right-4 sm:bottom-6 sm:right-6 z-50 select-none">
-      {/* Hidden YouTube Iframe Player container */}
-      <div className="hidden pointer-events-none opacity-0" aria-hidden="true">
-        <div id="yt-bg-player" />
-      </div>
-
-      {/* Hidden HTML5 Audio element fallback */}
+      {/* HTML5 Audio Element — local file */}
       <audio
         ref={audioRef}
         src="/audio/about-you.mp3"
-        loop
         preload="auto"
       />
 
@@ -355,7 +145,7 @@ export default function MusicPlayer({ autoPlayTriggered }: MusicPlayerProps) {
         <button
           onClick={togglePlay}
           className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-white/80 hover:bg-white flex items-center justify-center shadow-sm text-sky-800 transition-colors focus:outline-none focus:ring-2 focus:ring-sky-400"
-          aria-label={isPlaying ? 'Pause background music' : 'Play background music'}
+          aria-label={isPlaying ? 'Pause music' : 'Play music'}
         >
           {isPlaying ? (
             <Pause className="w-4 h-4 fill-sky-800" />
@@ -364,7 +154,7 @@ export default function MusicPlayer({ autoPlayTriggered }: MusicPlayerProps) {
           )}
         </button>
 
-        {/* Music Info & Animated Equalizer Waves */}
+        {/* Track Info & Equalizer */}
         <div
           onClick={() => setIsExpanded(!isExpanded)}
           className="flex items-center gap-2 cursor-pointer pr-1"
@@ -375,11 +165,11 @@ export default function MusicPlayer({ autoPlayTriggered }: MusicPlayerProps) {
               The 1975 — About You
             </span>
             <span className="text-[9px] text-sky-600/80 -mt-0.5">
-              {isPlaying ? 'Playing' : 'Paused'}
+              {isPlaying ? 'Playing ♪' : 'Paused'}
             </span>
           </div>
 
-          {/* Equalizer Waveform Bars */}
+          {/* Animated Equalizer Bars */}
           {isPlaying && !isMuted && (
             <div className="flex items-end gap-0.5 h-3 px-1">
               <motion.div
@@ -401,12 +191,12 @@ export default function MusicPlayer({ autoPlayTriggered }: MusicPlayerProps) {
           )}
         </div>
 
-        {/* Mute / Unmute & Volume slider controls (Expandable) */}
+        {/* Mute + Volume Slider */}
         <div className="flex items-center border-l border-sky-200/60 pl-2">
           <button
             onClick={toggleMute}
             className="w-7 h-7 sm:w-8 sm:h-8 rounded-full hover:bg-white/60 flex items-center justify-center text-sky-700 transition-colors focus:outline-none"
-            aria-label="Toggle background music mute"
+            aria-label="Toggle mute"
           >
             {isMuted || volume === 0 ? (
               <VolumeX className="w-4 h-4 text-rose-500" />
